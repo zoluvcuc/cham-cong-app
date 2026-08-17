@@ -11,10 +11,14 @@ export default function DashboardPage() {
   const [employee, setEmployee] = useState<any>(null);
   const [locationRule, setLocationRule] = useState<any>(null);
   
-  // Trạng thái thiết bị
+  // --- TRẠNG THÁI KIỂM TRA ĐIỀU KIỆN ---
   const [currentIp, setCurrentIp] = useState("");
+  const [currentLat, setCurrentLat] = useState<number | null>(null);
+  const [currentLng, setCurrentLng] = useState<number | null>(null);
   const [currentDistance, setCurrentDistance] = useState<number | null>(null);
+  
   const [isValid, setIsValid] = useState(false);
+  const [validationMethod, setValidationMethod] = useState<"IP" | "GPS" | null>(null);
   
   // Lịch sử hôm nay & Danh sách lịch sử cá nhân
   const [todayRecord, setTodayRecord] = useState<any>(null);
@@ -60,13 +64,13 @@ export default function DashboardPage() {
         
       if (attData) setTodayRecord(attData);
 
-      // Kéo lịch sử cá nhân của nhân viên này
+      // Kéo lịch sử cá nhân
       const { data: historyData } = await supabase
         .from("attendance")
         .select("*")
         .eq("employee_id", user.id)
         .order("date", { ascending: false })
-        .limit(10); // Lấy 10 ngày gần nhất
+        .limit(10);
 
       if (historyData) setMyHistory(historyData);
       
@@ -75,46 +79,66 @@ export default function DashboardPage() {
   };
 
   const checkLocationValid = async (rule: any) => {
-    let passed = false;
+    let passedByIp = false;
+    let tempIp = "";
 
+    // 1. LUÔN ƯU TIÊN KIỂM TRA IP (WIFI) TRƯỚC
     try {
       const res = await fetch("https://api.ipify.org?format=json");
       const data = await res.json();
-      setCurrentIp(data.ip);
-      if (rule.current_ip && data.ip === rule.current_ip) {
-        passed = true;
+      tempIp = data.ip;
+      setCurrentIp(tempIp);
+      
+      if (rule.current_ip && tempIp === rule.current_ip) {
+        passedByIp = true;
+        setValidationMethod("IP");
+        setIsValid(true);
       }
     } catch (e) {
       console.log("Không bắt được IP");
     }
 
-    if (!passed && rule.lat && rule.lng) {
+    // 2. NẾU SAI IP -> CHUYỂN SANG BẮT TỌA ĐỘ GPS
+    if (!passedByIp && rule.lat && rule.lng) {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            const dist = getDistance(
-              position.coords.latitude, 
-              position.coords.longitude, 
-              rule.lat, 
-              rule.lng
-            );
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            
+            // Lưu lại tọa độ để lát nữa gửi lên Database
+            setCurrentLat(lat);
+            setCurrentLng(lng);
+
+            const dist = getDistance(lat, lng, rule.lat, rule.lng);
             setCurrentDistance(dist);
+
             if (dist <= (rule.radius || 100)) {
               setIsValid(true);
+              setValidationMethod("GPS");
             } else {
-              setIsValid(passed);
+              setIsValid(false);
+              setValidationMethod(null);
             }
+            setLoading(false);
           },
           (error) => {
-            setIsValid(passed);
+            setIsValid(false);
+            setLoading(false);
           },
           { enableHighAccuracy: true }
         );
+      } else {
+        setIsValid(false);
+        setLoading(false);
       }
+    } else if (passedByIp) {
+      // Đã khớp IP thì dừng quét GPS luôn cho nhẹ máy
+      setLoading(false);
     } else {
-      setIsValid(passed);
+      setIsValid(false);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleCheckIn = async () => {
@@ -123,7 +147,10 @@ export default function DashboardPage() {
     const { error } = await supabase.from("attendance").insert({
       employee_id: employee.id,
       check_in_time: new Date().toISOString(),
-      check_in_ip: currentIp
+      check_in_ip: currentIp,
+      check_in_lat: currentLat, // Gửi tọa độ lên DB (nếu có)
+      check_in_lng: currentLng,
+      check_in_method: validationMethod // Lưu chữ "IP" hoặc "GPS"
     });
 
     if (!error) {
@@ -140,7 +167,10 @@ export default function DashboardPage() {
     const { error } = await supabase.from("attendance")
       .update({
         check_out_time: new Date().toISOString(),
-        check_out_ip: currentIp
+        check_out_ip: currentIp,
+        check_out_lat: currentLat,
+        check_out_lng: currentLng,
+        check_out_method: validationMethod
       })
       .eq("id", todayRecord.id);
 
@@ -165,7 +195,7 @@ export default function DashboardPage() {
     return new Date(isoString).toLocaleTimeString("vi-VN", { hour: '2-digit', minute: '2-digit' });
   };
 
-  if (loading) return <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Đang định vị vị trí của bạn... 🌍</div>;
+  if (loading) return <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Đang quét vị trí & thiết bị... 🌍</div>;
 
   return (
     <div className="space-y-6 max-w-md mx-auto pb-10">
@@ -182,15 +212,21 @@ export default function DashboardPage() {
             <span className="text-gray-600">IP Thiết bị:</span>
             <span className="font-bold text-gray-800">{currentIp || "Đang quét..."}</span>
           </div>
-          {locationRule?.lat && currentDistance !== null && (
+          {validationMethod === "GPS" && currentDistance !== null && (
             <div className="flex justify-between mb-1">
               <span className="text-gray-600">Khoảng cách:</span>
               <span className="font-bold text-gray-800">{currentDistance} mét</span>
             </div>
           )}
           <div className="flex justify-between font-medium pt-1 border-t border-gray-200/50">
-            <span className="text-gray-600">Trạng thái:</span>
-            {isValid ? <span className="text-green-600 font-bold">✅ Hợp lệ</span> : <span className="text-red-600 font-bold">❌ Không hợp lệ</span>}
+            <span className="text-gray-600">Xác thực bằng:</span>
+            {isValid ? (
+              <span className="text-green-600 font-bold">
+                ✅ {validationMethod === "IP" ? "Mạng Wifi" : "Vị trí GPS"}
+              </span>
+            ) : (
+              <span className="text-red-600 font-bold">❌ Không hợp lệ</span>
+            )}
           </div>
         </div>
       </div>
@@ -227,7 +263,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* --- BẢNG LỊCH SỬ CHẤM CÔNG CÁ NHÂN --- */}
+      {/* BẢNG LỊCH SỬ CHẤM CÔNG CÁ NHÂN */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-800 text-sm">Lịch sử chấm công gần đây</h3>
