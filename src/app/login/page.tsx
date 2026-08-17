@@ -52,13 +52,7 @@ export default function LoginPage() {
       } else {
         // Tài khoản 'active' -> Chuyển hướng
         setMessage("✅ Đăng nhập thành công! Đang chuyển hướng...");
-        
-        // Nếu là admin/manager thì cho vào trang quản lý, nếu là staff thì vào trang chấm công
-        if (empData.role === "admin" || empData.role === "manager") {
-          router.push("/admin"); 
-        } else {
-          router.push("/dashboard"); 
-        }
+          router.push("/dashboard");         
       }
     }
     setLoading(false);
