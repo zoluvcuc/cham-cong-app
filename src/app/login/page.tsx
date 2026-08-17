@@ -107,6 +107,12 @@ export default function LoginPage() {
             Đăng ký ngay
           </Link>
         </div>
+        <div className="text-center mt-6">
+        <p className="text-sm text-gray-500">
+            Quên mật khẩu? Vui lòng liên hệ Admin <br/>
+            <span className="font-bold text-blue-600">Mr. Long - 0986.597.341</span> để được cấp lại.
+        </p>
+        </div>
       </div>
     </div>
   );

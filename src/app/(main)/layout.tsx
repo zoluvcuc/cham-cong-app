@@ -122,6 +122,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               <Link href="/admin-locations" onClick={() => setIsSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl font-medium transition-colors ${pathname === "/admin-locations" ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:bg-gray-50"}`}>
                 🌍 Cấu hình Khu vực
               </Link>
+
+              <Link href="/admin-categories" onClick={() => setIsSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-xl font-medium transition-colors ${pathname === "/admin-categories" ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:bg-gray-50"}`}>
+                📂 Quản lý Danh mục
+              </Link>
             </>
           )}
         </nav>
