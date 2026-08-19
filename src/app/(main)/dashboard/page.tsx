@@ -11,7 +11,7 @@ export default function DashboardPage() {
   const [employee, setEmployee] = useState<any>(null);
   const [locationRule, setLocationRule] = useState<any>(null);
   
-  // --- TRẠNG THÁI KIỂM TRA ĐIỀU KIỆN ---
+  // Trạng thái thiết bị & vị trí
   const [currentIp, setCurrentIp] = useState("");
   const [currentLat, setCurrentLat] = useState<number | null>(null);
   const [currentLng, setCurrentLng] = useState<number | null>(null);
@@ -34,6 +34,24 @@ export default function DashboardPage() {
     }, 3000);
   };
 
+  // HÀM MỚI: BÓC TÁCH NGÀY CHUẨN XÁC 100% THEO MÚI GIỜ VIỆT NAM (Tránh lỗi trước 7h sáng)
+  const getVietnamDateString = () => {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    
+    // Bóc tách trực tiếp từng thành phần để trình duyệt điện thoại không bị nhầm lẫn
+    const parts = formatter.formatToParts(new Date());
+    const year = parts.find(p => p.type === 'year')?.value;
+    const month = parts.find(p => p.type === 'month')?.value;
+    const day = parts.find(p => p.type === 'day')?.value;
+    
+    return `${year}-${month}-${day}`;
+  };
+
   useEffect(() => {
     initDashboard();
   }, []);
@@ -53,8 +71,9 @@ export default function DashboardPage() {
       setEmployee(empData);
       setLocationRule(empData.locations);
       
-      // Kiểm tra chấm công hôm nay
-      const today = new Date().toISOString().split('T')[0];
+      // SỬ DỤNG NGÀY VIỆT NAM ĐỂ KIỂM TRA LỊCH SỬ HÔM NAY
+      const today = getVietnamDateString(); 
+      
       const { data: attData } = await supabase
         .from("attendance")
         .select("*")
@@ -82,7 +101,6 @@ export default function DashboardPage() {
     let passedByIp = false;
     let tempIp = "";
 
-    // 1. LUÔN ƯU TIÊN KIỂM TRA IP (WIFI) TRƯỚC
     try {
       const res = await fetch("https://api.ipify.org?format=json");
       const data = await res.json();
@@ -98,7 +116,6 @@ export default function DashboardPage() {
       console.log("Không bắt được IP");
     }
 
-    // 2. NẾU SAI IP -> CHUYỂN SANG BẮT TỌA ĐỘ GPS
     if (!passedByIp && rule.lat && rule.lng) {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
@@ -106,7 +123,6 @@ export default function DashboardPage() {
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
             
-            // Lưu lại tọa độ để lát nữa gửi lên Database
             setCurrentLat(lat);
             setCurrentLng(lng);
 
@@ -133,7 +149,6 @@ export default function DashboardPage() {
         setLoading(false);
       }
     } else if (passedByIp) {
-      // Đã khớp IP thì dừng quét GPS luôn cho nhẹ máy
       setLoading(false);
     } else {
       setIsValid(false);
@@ -144,13 +159,15 @@ export default function DashboardPage() {
   const handleCheckIn = async () => {
     if (!isValid) return showPopup("Bạn không ở đúng vị trí hợp lệ!", "error");
     
+    // TRUYỀN RÕ RÀNG NGÀY GIỜ VIỆT NAM VÀO DATABASE
     const { error } = await supabase.from("attendance").insert({
       employee_id: employee.id,
-      check_in_time: new Date().toISOString(),
+      date: getVietnamDateString(), // Ép Cột 'date' theo múi giờ VN
+      check_in_time: new Date().toISOString(), // Dữ liệu thời gian cứ để ISO, Supabase sẽ lo việc lưu chuẩn
       check_in_ip: currentIp,
-      check_in_lat: currentLat, // Gửi tọa độ lên DB (nếu có)
+      check_in_lat: currentLat,
       check_in_lng: currentLng,
-      check_in_method: validationMethod // Lưu chữ "IP" hoặc "GPS"
+      check_in_method: validationMethod
     });
 
     if (!error) {
@@ -192,7 +209,7 @@ export default function DashboardPage() {
 
   const formatTime = (isoString: string) => {
     if (!isoString) return "--:--";
-    return new Date(isoString).toLocaleTimeString("vi-VN", { hour: '2-digit', minute: '2-digit' });
+    return new Date(isoString).toLocaleTimeString("vi-VN", { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' });
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Đang quét vị trí & thiết bị... 🌍</div>;
@@ -282,7 +299,7 @@ export default function DashboardPage() {
               {myHistory.map((item, idx) => (
                 <tr key={item.id} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                   <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
-                    {new Date(item.date).toLocaleDateString("vi-VN")}
+                    {new Date(item.date).toLocaleDateString("vi-VN", { timeZone: 'Asia/Ho_Chi_Minh' })}
                   </td>
                   <td className="px-4 py-3 font-semibold text-green-600 whitespace-nowrap">
                     {formatTime(item.check_in_time)}
