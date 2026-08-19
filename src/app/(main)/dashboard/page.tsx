@@ -76,13 +76,13 @@ export default function DashboardPage() {
       
       const today = getVietnamDateString(); 
       
-      // LOGIC MỚI: Kéo ca làm việc MỚI NHẤT của ngày hôm nay
+      // LOGIC ĐÃ SỬA: Sắp xếp theo check_in_time thay vì created_at
       const { data: attData } = await supabase
         .from("attendance")
         .select("*")
         .eq("employee_id", user.id)
         .eq("date", today)
-        .order("created_at", { ascending: false })
+        .order("check_in_time", { ascending: false }) // Sửa tại đây
         .limit(1);
         
       if (attData && attData.length > 0) {
@@ -96,7 +96,7 @@ export default function DashboardPage() {
         .from("attendance")
         .select("*")
         .eq("employee_id", user.id)
-        .order("created_at", { ascending: false })
+        .order("check_in_time", { ascending: false }) // Sửa tại đây
         .limit(15);
 
       if (historyData) setMyHistory(historyData);
