@@ -22,6 +22,7 @@ export default function DashboardPage() {
   
   // Lịch sử hôm nay & Danh sách cá nhân
   const [currentShift, setCurrentShift] = useState<any>(null); // Lưu CA MỚI NHẤT của ngày hôm nay
+  const [shiftStatus, setShiftStatus] = useState<"IDLE" | "WORKING" | "FORGOT_OUT">("IDLE");
   const [myHistory, setMyHistory] = useState<any[]>([]);
 
   // --- STATES CHO TÍNH NĂNG CÔNG TÁC ---
@@ -74,29 +75,43 @@ export default function DashboardPage() {
       setEmployee(empData);
       setLocationRule(empData.locations);
       
-      const today = getVietnamDateString(); 
-      
-      // LOGIC ĐÃ SỬA: Sắp xếp theo check_in_time thay vì created_at
+      // 1. Kéo ca làm việc GẦN NHẤT
       const { data: attData } = await supabase
         .from("attendance")
         .select("*")
         .eq("employee_id", user.id)
-        .eq("date", today)
-        .order("check_in_time", { ascending: false }) // Sửa tại đây
+        .order("check_in_time", { ascending: false })
         .limit(1);
         
       if (attData && attData.length > 0) {
-        setCurrentShift(attData[0]);
+        const latest = attData[0];
+        setCurrentShift(latest);
+        
+        if (!latest.check_out_time) {
+          // TÍNH TOÁN TIMEOUT (15 TIẾNG)
+          const checkInTime = new Date(latest.check_in_time).getTime();
+          const now = new Date().getTime();
+          const hoursElapsed = (now - checkInTime) / (1000 * 60 * 60);
+          
+          if (hoursElapsed < 15) {
+            setShiftStatus("WORKING"); // Dưới 15 tiếng => Đang làm ca đêm
+          } else {
+            setShiftStatus("FORGOT_OUT"); // Hơn 15 tiếng => Quên ra ca hôm qua
+          }
+        } else {
+          setShiftStatus("IDLE");
+        }
       } else {
         setCurrentShift(null);
+        setShiftStatus("IDLE");
       }
 
-      // Kéo lịch sử cá nhân (Gộp nhiều ca trong ngày)
+      // 2. Kéo lịch sử cá nhân (Gộp nhiều ca trong ngày)
       const { data: historyData } = await supabase
         .from("attendance")
         .select("*")
         .eq("employee_id", user.id)
-        .order("check_in_time", { ascending: false }) // Sửa tại đây
+        .order("check_in_time", { ascending: false })
         .limit(15);
 
       if (historyData) setMyHistory(historyData);
@@ -165,14 +180,14 @@ export default function DashboardPage() {
   const handleMainButtonClick = () => {
     if (!isValid && !isBusinessTripMode) return; 
     
-    // Đang có ca chưa chốt -> Hành động là OUT. Nếu không -> IN
-    const type = (currentShift && !currentShift.check_out_time) ? "OUT" : "IN";
+    // LOGIC ĐÃ SỬA: Nếu đang WORKING thì mới là OUT. Nếu IDLE hoặc FORGOT_OUT thì là IN (Bắt đầu ca mới)
+    const type = shiftStatus === "WORKING" ? "OUT" : "IN";
     setActionType(type);
 
     if (isBusinessTripMode) {
-      setShowExceptionModal(true); // Nếu là công tác thì mở Modal hỏi lý do
+      setShowExceptionModal(true);
     } else {
-      executeAction(type); // Hợp lệ bình thường thì chấm luôn
+      executeAction(type);
     }
   };
 
@@ -232,8 +247,9 @@ export default function DashboardPage() {
 
   if (loading) return <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Đang quét vị trí & thiết bị... 🌍</div>;
 
-  const isWorking = currentShift && !currentShift.check_out_time;
-  const hasCompletedAShift = currentShift && currentShift.check_out_time;
+  const isWorking = shiftStatus === "WORKING";
+  const shiftsToday = myHistory.filter(h => h.date === getVietnamDateString());
+  const hasCompletedAShift = shiftsToday.some(h => h.check_out_time !== null);
 
   return (
     <div className="space-y-6 max-w-md mx-auto pb-10">
@@ -293,7 +309,12 @@ export default function DashboardPage() {
                 <h3 className="font-bold text-gray-800 text-sm">Đã hoàn thành {myHistory.filter(h => h.date === getVietnamDateString()).length} ca hôm nay!</h3>
               </div>
             )}
-            
+            {/* CẢNH BÁO QUÊN RA CA */}
+            {shiftStatus === "FORGOT_OUT" && (
+              <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-xs font-medium border border-red-100 text-center w-full shadow-sm animate-fade-in-up">
+                ⚠️ Bạn đã quên chấm công Ra Ca của ca làm việc trước. Hãy bấm Vào Ca để bắt đầu ngày làm việc mới!
+              </div>
+            )}
             <button 
               onClick={handleMainButtonClick}
               disabled={!isValid && !isBusinessTripMode}
